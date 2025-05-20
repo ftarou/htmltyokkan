@@ -1,1 +1,591 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTMLスライドエディタ (プレビュー内編集時の動作改善)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overscroll-behavior: none; /* スクロール連鎖を防止 */
+        }
+        .preview-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background-color: white; /* iframeの背景色 */
+        }
+        /* カスタムスクロールバー (オプション) */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #2d3748; /* slate-800 */
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4a5568; /* slate-600 */
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #718096; /* slate-500 */
+        }
+        .slide-item.active {
+            background-color: #4f46e5; /* indigo-600 */
+            color: white;
+        }
+        .slide-item:hover {
+            background-color: #3730a3; /* indigo-800 */
+        }
+        /* トランジション効果 */
+        .transition-all {
+            transition-property: all;
+            transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+            transition-duration: 150ms;
+        }
+        #htmlEditor::selection {
+            background-color: #6366f1; /* indigo-500 */
+            color: white;
+        }
+        /* ボタンのアイコン用スタイル */
+        .btn-icon {
+            width: 1.25rem; /* 20px */
+            height: 1.25rem; /* 20px */
+            margin-right: 0.25rem; /* 4px */
+            display: inline-block;
+            vertical-align: text-bottom;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-200 flex flex-col h-screen overflow-hidden">
+
+    <header class="bg-slate-800 p-3 shadow-lg flex justify-between items-center flex-shrink-0">
+        <h1 class="text-xl font-bold text-indigo-400">HTMLスライドエディタ</h1>
+        <div class="flex items-center space-x-2">
+            <button id="undoBtn" title="元に戻す (エディタ)" class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-3 rounded-lg text-sm transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12.066 11.2a5 5 0 00-5.423-5.423l-.334.232M12.066 11.2a5 5 0 01-8.004 2.99M12.066 11.2V7.5m0 3.7a5 5 0 015.423 5.423l.334-.232m-5.757-5.191a5 5 0 008.004-2.99M12.066 11.2v3.7" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l4-4m-4 4l4 4" />
+                </svg>
+                元に戻す
+            </button>
+            <button id="toggleLayoutBtn" title="レイアウト切替" class="bg-sky-500 hover:bg-sky-600 text-white font-semibold py-2 px-3 rounded-lg text-sm transition-all">
+                <svg id="layoutIcon" xmlns="http://www.w3.org/2000/svg" class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    </svg>
+                <span id="layoutBtnText">プレビュー</span>
+            </button>
+            <button id="addSlideBtn" class="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg text-sm transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                </svg>
+                新しいスライド
+            </button>
+            <button id="deleteSlideBtn" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg text-sm transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                </svg>
+                スライド削除
+            </button>
+            <button id="copyHtmlBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg text-sm transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2zM16 8V6a2 2 0 00-2-2H8a2 2 0 00-2 2v2m0 0h8"/>
+                </svg>
+                HTMLコピー
+            </button>
+        </div>
+    </header>
+
+    <main id="mainContent" class="flex-grow flex overflow-hidden">
+        <aside id="slideListPane" class="w-1/5 bg-slate-800 p-3 overflow-y-auto flex-shrink-0 border-r border-slate-700 transition-all duration-300 ease-in-out">
+            <h2 class="text-lg font-semibold mb-3 text-slate-300">スライド一覧</h2>
+            <ul id="slideList" class="space-y-2"></ul>
+        </aside>
+
+        <section id="editorPane" class="w-2/5 flex flex-col bg-slate-900 p-1 transition-all duration-300 ease-in-out">
+            <div class="flex justify-between items-center p-2 border-b border-slate-700">
+                <h2 class="text-lg font-semibold text-slate-300">HTMLエディタ</h2>
+                <span id="currentSlideIndicator" class="text-sm text-slate-400"></span>
+            </div>
+            <textarea id="htmlEditor" class="flex-grow w-full p-3 bg-slate-800 text-slate-100 border-none focus:ring-2 focus:ring-indigo-500 resize-none outline-none font-mono text-sm leading-relaxed" spellcheck="false"></textarea>
+        </section>
+
+        <section id="previewPane" class="w-2/5 flex flex-col bg-slate-700 p-1 transition-all duration-300 ease-in-out">
+            <h2 class="text-lg font-semibold p-2 text-slate-300 border-b border-slate-600">プレビュー</h2>
+            <iframe id="previewFrame" class="preview-iframe flex-grow"></iframe>
+        </section>
+    </main>
+
+    <script>
+        // DOM要素の取得
+        const addSlideBtn = document.getElementById('addSlideBtn');
+        const deleteSlideBtn = document.getElementById('deleteSlideBtn');
+        const copyHtmlBtn = document.getElementById('copyHtmlBtn');
+        const slideList = document.getElementById('slideList');
+        const htmlEditor = document.getElementById('htmlEditor');
+        const previewFrame = document.getElementById('previewFrame');
+        const currentSlideIndicator = document.getElementById('currentSlideIndicator');
+        const undoBtn = document.getElementById('undoBtn');
+        const toggleLayoutBtn = document.getElementById('toggleLayoutBtn');
+        const layoutIcon = document.getElementById('layoutIcon');
+        const layoutBtnText = document.getElementById('layoutBtnText');
+
+        const slideListPane = document.getElementById('slideListPane');
+        const editorPane = document.getElementById('editorPane');
+        const previewPane = document.getElementById('previewPane');
+
+        // アプリケーションの状態
+        let slides = [];
+        let currentSlideId = null;
+        let nextSlideId = 1;
+        let currentlyEditingElement = null;
+        let savedPreviewScrollY = 0;
+
+        // Undo履歴
+        let editorHistory = [];
+        const MAX_HISTORY_SIZE = 20;
+
+        // レイアウトモード
+        let layoutMode = 0;
+        const LAYOUT_NORMAL = 0;
+        const LAYOUT_PREVIEW_MAX = 1;
+        const LAYOUT_EDITOR_MAX = 2;
+
+        // アイコンSVG定義
+        const eyeIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>`;
+        const codeIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>`;
+        const layoutIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" class="btn-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>`;
+
+        // 初期スライドのサンプル
+        function initializeSampleSlides() {
+            createSlide('<h1>ようこそ！</h1>\n<p>HTMLスライドエディタへ</p>\n<p class="text-center mt-5">\n  <button onclick="alert(\'クリックされました！\')" class="py-2 px-4 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">テストボタン</button>\n</p><div style="height: 1000px; background: #eee; margin-top:20px; display:flex; align-items:center; justify-content:center; color: #333;">スクロール用ダミー要素</div><p>一番下のテキスト</p>');
+        }
+
+        // スライドを作成する関数
+        function createSlide(initialContent = '<p>新しいスライド</p>') {
+            const newSlide = {
+                id: nextSlideId++,
+                content: initialContent,
+            };
+            slides.push(newSlide);
+            renderSlideList();
+            selectSlide(newSlide.id);
+            pushEditorHistory(initialContent, true);
+        }
+
+        // スライドリストをレンダリングする関数
+        function renderSlideList() {
+            slideList.innerHTML = '';
+            if (slides.length === 0) {
+                const emptyMsg = document.createElement('li');
+                emptyMsg.textContent = 'スライドがありません。';
+                emptyMsg.className = 'text-slate-500 text-sm p-2';
+                slideList.appendChild(emptyMsg);
+                return;
+            }
+            slides.forEach((slide, index) => {
+                const listItem = document.createElement('li');
+                listItem.textContent = `スライド ${index + 1}`;
+                listItem.dataset.id = slide.id;
+                listItem.className = 'slide-item p-2 rounded-md cursor-pointer text-sm transition-all text-slate-300 hover:bg-indigo-700 hover:text-white';
+                if (slide.id === currentSlideId) {
+                    listItem.classList.add('active');
+                }
+                listItem.addEventListener('click', () => selectSlide(slide.id));
+                slideList.appendChild(listItem);
+            });
+        }
+
+        // スライドを選択する関数
+        function selectSlide(id) {
+            const slide = slides.find(s => s.id === id);
+            if (slide) {
+                if (currentlyEditingElement && typeof currentlyEditingElement.blur === 'function') {
+                    currentlyEditingElement.blur();
+                }
+                currentSlideId = id;
+                htmlEditor.value = slide.content;
+                pushEditorHistory(slide.content, true);
+
+                savedPreviewScrollY = 0;
+                updatePreview(slide.content);
+                renderSlideList();
+                const slideIndex = slides.findIndex(s => s.id === id);
+                currentSlideIndicator.textContent = `スライド ${slideIndex + 1} / ${slides.length}`;
+            } else if (slides.length > 0) {
+                selectSlide(slides[0].id);
+            } else {
+                currentSlideId = null;
+                htmlEditor.value = '';
+                updatePreview('');
+                currentSlideIndicator.textContent = 'スライドなし';
+                editorHistory = [];
+            }
+            updateUndoButtonState();
+        }
+
+        // プレビューを更新する関数
+        function updatePreview(htmlContent) {
+            if (previewFrame.contentWindow && previewFrame.contentDocument && previewFrame.contentDocument.documentElement) {
+                savedPreviewScrollY = previewFrame.contentWindow.scrollY || previewFrame.contentDocument.documentElement.scrollTop;
+            }
+
+            const parser = new DOMParser();
+            const previewHtml = `
+                <!DOCTYPE html>
+                <html lang="ja">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <script src="https://cdn.tailwindcss.com"><\/script>
+                    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+                    <style>
+                        /* Basic CSS Reset */
+                        html, body, div, span, applet, object, iframe,
+                        h1, h2, h3, h4, h5, h6, p, blockquote, pre,
+                        a, abbr, acronym, address, big, cite, code,
+                        del, dfn, em, img, ins, kbd, q, s, samp,
+                        small, strike, strong, sub, sup, tt, var,
+                        b, u, i, center,
+                        dl, dt, dd, ol, ul, li,
+                        fieldset, form, label, legend,
+                        table, caption, tbody, tfoot, thead, tr, th, td,
+                        article, aside, canvas, details, embed,
+                        figure, figcaption, footer, header, hgroup,
+                        menu, nav, output, ruby, section, summary,
+                        time, mark, audio, video {
+                            margin: 0;
+                            padding: 0;
+                            border: 0;
+                            font-size: 100%;
+                            font: inherit;
+                            vertical-align: baseline;
+                            box-sizing: border-box;
+                        }
+                        article, aside, details, figcaption, figure,
+                        footer, header, hgroup, menu, nav, section {
+                            display: block;
+                        }
+                        body {
+                            line-height: 1;
+                            font-family: 'Inter', sans-serif;
+                            background-color: #ffffff;
+                            color: #333333;
+                            padding: 20px;
+                            overscroll-behavior: none;
+                        }
+                        ol, ul {
+                            list-style: revert;
+                            margin-left: 20px;
+                        }
+                        blockquote, q {
+                            quotes: none;
+                        }
+                        blockquote:before, blockquote:after,
+                        q:before, q:after {
+                            content: '';
+                            content: none;
+                        }
+                        table {
+                            border-collapse: collapse;
+                            border-spacing: 0;
+                        }
+                        img { max-width: 100%; height: auto; }
+                    </style>
+                </head>
+                <body>
+                    ${htmlContent}
+                </body>
+                </html>`;
+
+            const doc = parser.parseFromString(previewHtml, "text/html");
+            let syncIdCounter = 0;
+
+            try {
+                Array.from(doc.body.children).forEach(el => {
+                    if (el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') {
+                        el.setAttribute("data-sync-id", "sync-" + syncIdCounter++);
+                        el.querySelectorAll("*").forEach(child => {
+                            if (child.tagName !== 'SCRIPT' && child.tagName !== 'STYLE' && !child.hasAttribute("data-sync-id")) {
+                                child.setAttribute("data-sync-id", "sync-" + syncIdCounter++);
+                            }
+                        });
+                    }
+                });
+            } catch (error) {
+                console.error("Error adding sync IDs:", error);
+            }
+            previewFrame.srcdoc = doc.documentElement.outerHTML;
+        }
+
+        // iframeのロード完了後にイベントリスナーを設定
+        previewFrame.onload = () => {
+            if (previewFrame.contentWindow) {
+                previewFrame.contentWindow.scrollTo(0, savedPreviewScrollY);
+            }
+
+            if (previewFrame.contentDocument && previewFrame.contentDocument.body) {
+                const editableSelector = 'p, h1, h2, h3, h4, h5, h6, li, span, strong, em, b, i, u, td, th, figcaption, blockquote, dt, dd, address, pre, button, a, label, summary';
+
+                previewFrame.contentDocument.body.querySelectorAll(editableSelector).forEach(el => {
+                    if (el.closest('script') || el.closest('style')) return;
+                    if (el.isContentEditable || (el.parentElement && el.parentElement.isContentEditable)) return;
+
+                    el.style.cursor = 'pointer';
+
+                    el.addEventListener('click', function(event) {
+                        event.preventDefault();
+                        event.stopPropagation();
+
+                        if (currentlyEditingElement && currentlyEditingElement !== this && typeof currentlyEditingElement.blur === 'function') {
+                            currentlyEditingElement.blur();
+                        }
+
+                        currentlyEditingElement = this;
+                        this.contentEditable = 'true';
+                        this.focus();
+                        this.style.outline = '2px dashed #6366f1';
+                        this.style.cursor = 'text';
+
+
+                        const onBlurHandler = () => {
+                            this.contentEditable = 'false';
+                            this.style.outline = 'none';
+                            this.style.cursor = 'pointer';
+                            currentlyEditingElement = null;
+
+                            const previewBodyClone = previewFrame.contentDocument.body.cloneNode(true);
+                            previewBodyClone.querySelectorAll('[data-sync-id]').forEach(syncEl => syncEl.removeAttribute('data-sync-id'));
+                            previewBodyClone.querySelectorAll('[style*="outline:"]').forEach(styledEl => styledEl.style.outline = '');
+                            previewBodyClone.querySelectorAll('[style*="cursor:"]').forEach(styledEl => styledEl.style.cursor = '');
+
+                            const newContentForEditor = previewBodyClone.innerHTML;
+
+                            if (htmlEditor.value !== newContentForEditor) {
+                                htmlEditor.value = newContentForEditor;
+                                // プレビューからの変更時は、inputイベントを発行してデータモデルと履歴を更新するが、
+                                // ここで updatePreview を直接呼び出すループを避ける
+                                htmlEditor.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                            this.removeEventListener('blur', onBlurHandler);
+                        };
+                        this.addEventListener('blur', onBlurHandler, { once: true });
+                    });
+                });
+            }
+        };
+
+
+        // 現在のスライドの内容を更新する関数
+        function updateCurrentSlideContent(newContent) {
+            if (currentSlideId !== null) {
+                const slide = slides.find(s => s.id === currentSlideId);
+                if (slide) {
+                    slide.content = newContent;
+                }
+            }
+        }
+
+        // スライドを削除する関数
+        function deleteCurrentSlide() {
+            if (currentSlideId === null || slides.length === 0) {
+                showModal('削除するスライドがありません。');
+                return;
+            }
+            if (currentlyEditingElement && typeof currentlyEditingElement.blur === 'function') {
+                currentlyEditingElement.blur();
+            }
+            const currentIndex = slides.findIndex(s => s.id === currentSlideId);
+            slides = slides.filter(s => s.id !== currentSlideId);
+            renderSlideList();
+
+            if (slides.length === 0) {
+                selectSlide(null);
+            } else if (currentIndex >= slides.length) {
+                selectSlide(slides[slides.length - 1].id);
+            } else {
+                selectSlide(slides[currentIndex] ? slides[currentIndex].id : slides[0].id);
+            }
+        }
+
+        // 全スライドのHTMLをクリップボードにコピーする関数
+        function copySlidesHtmlToClipboard() {
+            if (slides.length === 0) {
+                showModal('コピーするスライドがありません。');
+                return;
+            }
+
+            let combinedHtml = "";
+            slides.forEach((slide, index) => {
+                if (index > 0) {
+                    combinedHtml += "\n\n\n\n";
+                } else {
+                    combinedHtml += "\n\n";
+                }
+                combinedHtml += slide.content;
+            });
+
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(combinedHtml)
+                    .then(() => {
+                        showModal('全スライドのHTMLがクリップボードにコピーされました！');
+                    })
+                    .catch(err => {
+                        console.error('クリップボードへのコピーに失敗しました: ', err);
+                        showModal('クリップボードへのコピーに失敗しました。コンソールで詳細を確認してください。');
+                    });
+            } else {
+                const textArea = document.createElement("textarea");
+                textArea.value = combinedHtml;
+                textArea.style.position = "fixed";
+                textArea.style.left = "-9999px";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    showModal('全スライドのHTMLがクリップボードにコピーされました！ (フォールバック)');
+                } catch (err) {
+                    console.error('クリップボードへのコピーに失敗しました (フォールバック): ', err);
+                    showModal('クリップボードへのコピーに失敗しました。');
+                }
+                document.body.removeChild(textArea);
+            }
+        }
+
+
+        // --- Undo機能 ---
+        function pushEditorHistory(content, isNewSlideSelection = false) {
+            if (!isNewSlideSelection && editorHistory.length > 0 && editorHistory[editorHistory.length - 1] === content) {
+                return;
+            }
+            if (isNewSlideSelection) {
+                editorHistory = [content];
+            } else {
+                editorHistory.push(content);
+            }
+
+            if (editorHistory.length > MAX_HISTORY_SIZE) {
+                editorHistory.shift();
+            }
+            updateUndoButtonState();
+        }
+
+        function undoEditorChange() {
+            if (editorHistory.length > 1) {
+                editorHistory.pop();
+                const previousContent = editorHistory[editorHistory.length - 1];
+                htmlEditor.value = previousContent;
+                updateCurrentSlideContent(previousContent);
+                updatePreview(previousContent);
+            } else if (editorHistory.length === 1 && htmlEditor.value !== editorHistory[0]) {
+                const initialContent = editorHistory[0];
+                htmlEditor.value = initialContent;
+                updateCurrentSlideContent(initialContent);
+                updatePreview(initialContent);
+            }
+            updateUndoButtonState();
+        }
+
+        function updateUndoButtonState() {
+            if (editorHistory.length <= 1 && (editorHistory.length === 0 || htmlEditor.value === editorHistory[0])) {
+                undoBtn.disabled = true;
+                undoBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            } else {
+                undoBtn.disabled = false;
+                undoBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        // --- レイアウト切替機能 ---
+        function applyLayoutMode() {
+            slideListPane.classList.remove('hidden', 'w-0', 'p-0', 'w-1/5');
+            editorPane.classList.remove('hidden', 'w-0', 'p-0', 'w-full', 'w-2/5');
+            previewPane.classList.remove('hidden', 'w-0', 'p-0', 'w-full', 'w-2/5');
+
+            slideListPane.classList.add('w-1/5', 'p-3');
+            editorPane.classList.add('w-2/5', 'p-1');
+            previewPane.classList.add('w-2/5', 'p-1');
+
+            if (layoutMode === LAYOUT_PREVIEW_MAX) {
+                slideListPane.classList.add('hidden');
+                editorPane.classList.add('hidden');
+                previewPane.classList.replace('w-2/5', 'w-full');
+                layoutIcon.innerHTML = codeIconSVG;
+                layoutBtnText.textContent = "エディタ";
+            } else if (layoutMode === LAYOUT_EDITOR_MAX) {
+                slideListPane.classList.add('hidden');
+                previewPane.classList.add('hidden');
+                editorPane.classList.replace('w-2/5', 'w-full');
+                layoutIcon.innerHTML = layoutIconSVG;
+                layoutBtnText.textContent = "通常表示";
+            } else {
+                layoutIcon.innerHTML = eyeIconSVG;
+                layoutBtnText.textContent = "プレビュー";
+            }
+        }
+
+        toggleLayoutBtn.addEventListener('click', () => {
+            layoutMode = (layoutMode + 1) % 3;
+            applyLayoutMode();
+        });
+
+
+        // イベントリスナーの設定
+        addSlideBtn.addEventListener('click', () => {
+            if (currentlyEditingElement && typeof currentlyEditingElement.blur === 'function') {
+                currentlyEditingElement.blur();
+            }
+            createSlide();
+        });
+        deleteSlideBtn.addEventListener('click', deleteCurrentSlide);
+        copyHtmlBtn.addEventListener('click', copySlidesHtmlToClipboard);
+        undoBtn.addEventListener('click', undoEditorChange);
+
+        // HTMLエディタのinputイベントリスナー (修正箇所)
+        htmlEditor.addEventListener('input', (e) => {
+            if (currentSlideId !== null) {
+                const newContent = e.target.value;
+                updateCurrentSlideContent(newContent); // データモデルを更新
+
+                // 変更ソースに関わらず履歴は更新 (プレビューからの編集もUndo可能にするため)
+                pushEditorHistory(newContent);
+
+                // HTMLエディタエリアでの直接編集の場合のみプレビュー全体を再描画
+                if (e.isTrusted) {
+                    updatePreview(newContent);
+                }
+                // e.isTrusted が false の場合 (プレビュー内の contentEditable からの変更起因):
+                // プレビューの見た目は contentEditable によって既に更新されている。
+                // データモデルと履歴は上で更新済み。
+                // ここで updatePreview を呼ぶと iframe がリロードされ、
+                // プレビュー内のスクリプトの状態がリセットされるため呼び出さない。
+            }
+        });
+
+        // モーダル表示用のヘルパー関数
+        function showModal(message, type = 'info') {
+            alert(message);
+        }
+
+
+        // アプリケーションの初期化
+        initializeSampleSlides();
+        if (slides.length > 0) {
+            selectSlide(slides[0].id);
+        } else {
+            currentSlideIndicator.textContent = 'スライドなし';
+            editorHistory = [];
+        }
+        updateUndoButtonState();
+        applyLayoutMode();
+        renderSlideList();
+
+    </script>
+</body>
+</html>
+```
+
 
